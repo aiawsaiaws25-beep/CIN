@@ -1,0 +1,4 @@
+node_modules/
+backend/data.sqlite
+tests/test-data.sqlite
+*.log

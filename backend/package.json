@@ -1,0 +1,14 @@
+{
+  "name": "cinebook-backend",
+  "version": "1.0.0",
+  "description": "CineBook cinema ticket booking backend API",
+  "type": "module",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "test": "node --test ../tests"
+  },
+  "engines": {
+    "node": ">=22.5.0"
+  }
+}
