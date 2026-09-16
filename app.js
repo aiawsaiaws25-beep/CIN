@@ -24,7 +24,7 @@
     return node;
   }
 
-  async function api(path, options) {
+  async function fetchApi(path, options) {
     const res = await fetch(`${API_BASE}${path}`, options);
     let body;
     try {
@@ -41,6 +41,41 @@
     return body;
   }
 
+  // When window.CineBookStore is present (the static GitHub Pages build),
+  // all data lives in the browser via localStorage — no backend needed.
+  const store = window.CineBookStore;
+
+  const Api = store
+    ? {
+        listMovies: async () => store.listMovies(),
+        getMovie: async (id) => store.getMovie(id),
+        listShowtimes: async (movieId) => store.listShowtimesForMovie(movieId),
+        getShowtimeDetail: async (id) => store.getShowtimeDetail(id),
+        createBooking: async (payload) => {
+          try {
+            return store.createBooking(payload);
+          } catch (err) {
+            const e = new Error(err.message || 'Booking failed.');
+            e.status = err.status || 500;
+            throw e;
+          }
+        },
+        getBooking: async (reference) => store.getBookingByReference(reference),
+      }
+    : {
+        listMovies: async () => fetchApi('/api/movies'),
+        getMovie: async (id) => fetchApi(`/api/movies/${id}`),
+        listShowtimes: async (movieId) => fetchApi(`/api/movies/${movieId}/showtimes`),
+        getShowtimeDetail: async (id) => fetchApi(`/api/showtimes/${id}`),
+        createBooking: async (payload) =>
+          fetchApi('/api/bookings', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload),
+          }),
+        getBooking: async (reference) => fetchApi(`/api/bookings/${reference}`),
+      };
+
   function formatDateTime(iso) {
     const d = new Date(iso);
     return d.toLocaleString(undefined, {
@@ -56,7 +91,7 @@
 
   async function renderMovieList() {
     app.replaceChildren(el('p', { class: 'spinner-text' }, 'Loading movies…'));
-    const movies = await api('/api/movies');
+    const movies = await Api.listMovies();
     const grid = el('div', { class: 'movie-grid' },
       movies.map((m) => el('a', { class: 'movie-card', href: `#/movie/${m.id}` }, [
         el('div', { class: 'movie-poster' }, m.poster_emoji),
@@ -74,8 +109,8 @@
   async function renderShowtimes(movieId) {
     app.replaceChildren(el('p', { class: 'spinner-text' }, 'Loading showtimes…'));
     const [movie, showtimes] = await Promise.all([
-      api(`/api/movies/${movieId}`),
-      api(`/api/movies/${movieId}/showtimes`),
+      Api.getMovie(movieId),
+      Api.listShowtimes(movieId),
     ]);
 
     const byCinema = new Map();
@@ -112,7 +147,7 @@
 
   async function renderSeatSelection(showtimeId) {
     app.replaceChildren(el('p', { class: 'spinner-text' }, 'Loading seat map…'));
-    const showtime = await api(`/api/showtimes/${showtimeId}`);
+    const showtime = await Api.getShowtimeDetail(showtimeId);
     state.selectedSeats = [];
 
     const rows = new Map();
@@ -206,7 +241,7 @@
       return;
     }
     app.replaceChildren(el('p', { class: 'spinner-text' }, 'Loading…'));
-    const showtime = await api(`/api/showtimes/${showtimeId}`);
+    const showtime = await Api.getShowtimeDetail(showtimeId);
     const total = seats.length * showtime.price;
 
     const errorBox = el('div', {});
@@ -234,15 +269,11 @@
       submitBtn.disabled = true;
       submitBtn.textContent = 'Processing payment…';
       try {
-        const result = await api('/api/bookings', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            showtimeId: Number(showtimeId),
-            seatIds: seats.map((s) => s.id),
-            customer: { name: data.get('name'), email: data.get('email') },
-            payment: { cardNumber: data.get('cardNumber'), expiry: data.get('expiry'), cvv: data.get('cvv') },
-          }),
+        const result = await Api.createBooking({
+          showtimeId: Number(showtimeId),
+          seatIds: seats.map((s) => s.id),
+          customer: { name: data.get('name'), email: data.get('email') },
+          payment: { cardNumber: data.get('cardNumber'), expiry: data.get('expiry'), cvv: data.get('cvv') },
         });
         sessionStorage.removeItem('cinebook:selectedSeats');
         sessionStorage.removeItem('cinebook:showtimeId');
@@ -266,7 +297,7 @@
 
   async function renderConfirmation(reference) {
     app.replaceChildren(el('p', { class: 'spinner-text' }, 'Loading confirmation…'));
-    const booking = await api(`/api/bookings/${reference}`);
+    const booking = await Api.getBooking(reference);
     app.replaceChildren(
       el('div', { class: 'confirmation-card' }, [
         el('div', {}, '✅'),
